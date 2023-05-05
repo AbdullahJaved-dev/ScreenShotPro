@@ -351,4 +351,24 @@ class ScreenCaptureService : Service() {
         }
         return result
     }
+    private fun combineBitmapsHorizontally(bitmaps: List<Bitmap>): Bitmap {
+        // Calculate the size of the new bitmap
+        val width = bitmaps.sumOf { it.width }
+        val height = bitmaps.maxOfOrNull { it.height } ?: 0
+
+        // Create the new bitmap
+        val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+        // Draw the bitmaps onto the new bitmap
+        val canvas = Canvas(result)
+        var x = 0f
+        for (bitmap in bitmaps) {
+            canvas.drawBitmap(bitmap, x, 0f, null)
+            x += bitmap.width.toFloat()
+        }
+
+        return result
+    }
+
+
 }
