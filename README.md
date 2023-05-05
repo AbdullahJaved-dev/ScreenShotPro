@@ -2,6 +2,8 @@
 
 ScreenShotPro is an Android app that allows you to capture screenshots and combine them vertically into a single image. You can capture screenshots one at a time or in quick succession, and the app will automatically combine them into a single image for easy sharing and saving.
 
+![Screenshot](Screenshot.jpg)
+
 ## Features
 
 * Capture single or multiple screenshots
