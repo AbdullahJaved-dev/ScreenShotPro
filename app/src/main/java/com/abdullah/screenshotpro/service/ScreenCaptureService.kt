@@ -17,19 +17,15 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.Image
 import android.media.ImageReader
-import android.media.ImageReader.OnImageAvailableListener
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
-import android.view.Display
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
-import android.view.OrientationEventListener
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -40,110 +36,22 @@ import com.abdullah.screenshotpro.MainActivity
 import com.abdullah.screenshotpro.R
 import com.abdullah.screenshotpro.data.ParcelableIntent
 import java.io.ByteArrayOutputStream
-import java.io.FileOutputStream
-import java.io.IOException
 import java.util.Objects
 
 
 class ScreenCaptureService : Service() {
     private var mMediaProjection: MediaProjection? = null
-    private var mStoreDir: String? = null
     private var mImageReader: ImageReader? = null
     private var mHandler: Handler? = null
-    private var mDisplay: Display? = null
     private var mVirtualDisplay: VirtualDisplay? = null
     private var mDensity = 0
     private var mWidth = 0
     private var mHeight = 0
-    private var mRotation = 0
-    private var mOrientationChangeCallback: OrientationChangeCallback? = null
-
     private var windowManager: WindowManager? = null
     private var mFloatingWidget: View? = null
     private lateinit var params: WindowManager.LayoutParams
 
     private val ssList = arrayListOf<Bitmap>()
-
-    private inner class ImageAvailableListener : OnImageAvailableListener {
-        override fun onImageAvailable(reader: ImageReader) {
-            var fos: FileOutputStream? = null
-            var bitmap: Bitmap? = null
-            try {
-                mImageReader!!.acquireLatestImage().use { image ->
-                    if (image != null) {
-                        val planes = image.planes
-                        val buffer = planes[0].buffer
-                        val pixelStride = planes[0].pixelStride
-                        val rowStride = planes[0].rowStride
-                        val rowPadding = rowStride - pixelStride * mWidth
-
-                        // create bitmap
-                        bitmap = Bitmap.createBitmap(
-                            mWidth + rowPadding / pixelStride,
-                            mHeight,
-                            Bitmap.Config.ARGB_8888
-                        )
-                        bitmap?.copyPixelsFromBuffer(buffer)
-
-                        // write bitmap to a file
-                        fos =
-                            FileOutputStream("$mStoreDir/myscreen_$IMAGES_PRODUCED.png")
-                        bitmap?.compress(Bitmap.CompressFormat.JPEG, 100, fos)
-                        IMAGES_PRODUCED++
-                        Log.e(
-                            TAG,
-                            "captured image: $IMAGES_PRODUCED"
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                if (fos != null) {
-                    try {
-                        fos!!.close()
-                    } catch (ioe: IOException) {
-                        ioe.printStackTrace()
-                    }
-                }
-                if (bitmap != null) {
-                    bitmap!!.recycle()
-                }
-            }
-        }
-    }
-
-    private inner class OrientationChangeCallback(context: Context?) :
-        OrientationEventListener(context) {
-        override fun onOrientationChanged(orientation: Int) {
-            val rotation = mDisplay!!.rotation
-            if (rotation != mRotation) {
-                mRotation = rotation
-                try {
-                    // clean up
-                    if (mVirtualDisplay != null) mVirtualDisplay!!.release()
-                    if (mImageReader != null) mImageReader!!.setOnImageAvailableListener(null, null)
-
-                    // re-create virtual display depending on device width / height
-                    createVirtualDisplay()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-    }
-
-    private inner class MediaProjectionStopCallback : MediaProjection.Callback() {
-        override fun onStop() {
-            Log.e(TAG, "stopping projection.")
-            mHandler?.post {
-                if (mVirtualDisplay != null) mVirtualDisplay!!.release()
-                if (mImageReader != null) mImageReader!!.setOnImageAvailableListener(null, null)
-                if (mOrientationChangeCallback != null) mOrientationChangeCallback!!.disable()
-                mMediaProjection!!.unregisterCallback(this@MediaProjectionStopCallback)
-            }
-        }
-    }
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
@@ -152,26 +60,6 @@ class ScreenCaptureService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        // create store dir
-        /*val externalFilesDir: File? = getExternalFilesDir(null)
-        if (externalFilesDir != null) {
-            mStoreDir = externalFilesDir.absolutePath + "/screenshots/"
-            val storeDirectory = mStoreDir?.let { File(it) }
-            if (storeDirectory != null) {
-                if (!storeDirectory.exists()) {
-                    val success = storeDirectory.mkdirs()
-                    if (!success) {
-                        Log.e(TAG, "failed to create file storage directory.")
-                        stopSelf()
-                    }
-                }
-            }
-        } else {
-            Log.e(TAG, "failed to create file storage directory, getExternalFilesDir is null.")
-            stopSelf()
-        }*/
-
-        // start capture handling thread
         object : Thread() {
             override fun run() {
                 Looper.prepare()
@@ -194,7 +82,7 @@ class ScreenCaptureService : Service() {
             )
 
             val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Foreground Service")
+                .setContentTitle("ScreenCapture Foreground Service")
                 .setContentText("Running...")
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentIntent(pendingIntent)
@@ -248,7 +136,10 @@ class ScreenCaptureService : Service() {
             btnCapture?.setOnClickListener {
                 // start projection
                 val resultCode = intent.getIntExtra(RESULT_CODE, Activity.RESULT_CANCELED)
-                val data = intent.getParcelableExtra<ParcelableIntent>(DATA)
+                val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(DATA, ParcelableIntent::class.java)
+                } else
+                    intent.getParcelableExtra(DATA)
                 startProjection(resultCode, data?.intent)
             }
 
@@ -276,9 +167,7 @@ class ScreenCaptureService : Service() {
                     stopSelf()
                 }
             }
-
             initializeView()
-
 
         } else if (isStopCommand(intent)) {
             stopProjection()
@@ -307,14 +196,10 @@ class ScreenCaptureService : Service() {
                         }
 
                         MotionEvent.ACTION_UP -> {
-                            //when the drag is ended switching the state of the widget
-                            /*collapsedView?.visibility = View.GONE
-                            expandedView?.visibility = View.VISIBLE*/
                             return true
                         }
 
                         MotionEvent.ACTION_MOVE -> {
-                            //this code is helping the widget to move around the screen with fingers
                             params.x = initialX + (event.rawX - initialTouchX).toInt()
                             params.y = initialY + (event.rawY - initialTouchY).toInt()
                             windowManager!!.updateViewLayout(mFloatingWidget, params)
@@ -339,29 +224,11 @@ class ScreenCaptureService : Service() {
         if (mMediaProjection == null) {
             mMediaProjection = mpManager!!.getMediaProjection(resultCode, data!!)
             if (mMediaProjection != null) {
-                // display metrics
                 mDensity = Resources.getSystem().displayMetrics.densityDpi
-                val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager?
-                mDisplay = windowManager!!.defaultDisplay
-
-                // create virtual display depending on device width / height
                 createVirtualDisplay()
-
-                // register orientation change callback
-                /*mOrientationChangeCallback = OrientationChangeCallback(this)
-                if (mOrientationChangeCallback!!.canDetectOrientation()) {
-                    mOrientationChangeCallback!!.enable()
-                }*/
-
-                // register media projection stop callback
-                //mMediaProjection!!.registerCallback(MediaProjectionStopCallback(), mHandler)
-            }
+                }
         } else {
             mDensity = Resources.getSystem().displayMetrics.densityDpi
-            val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager?
-            mDisplay = windowManager!!.defaultDisplay
-
-            // create virtual display depending on device width / height
             createVirtualDisplay()
         }
     }
@@ -369,7 +236,7 @@ class ScreenCaptureService : Service() {
     private fun stopProjection() {
         mHandler?.post {
             if (mMediaProjection != null) {
-                mMediaProjection!!.stop()
+                mMediaProjection?.stop()
             }
         }
     }
@@ -382,8 +249,8 @@ class ScreenCaptureService : Service() {
 
         // start capture reader
         mImageReader = ImageReader.newInstance(mWidth, mHeight, PixelFormat.RGBA_8888, 2)
-        mVirtualDisplay = mMediaProjection!!.createVirtualDisplay(
-            SCREENCAP_NAME, mWidth, mHeight,
+        mVirtualDisplay = mMediaProjection?.createVirtualDisplay(
+            SCREEN_CAP_NAME, mWidth, mHeight,
             mDensity,
             virtualDisplayFlags, mImageReader!!.surface, null, mHandler
         )
@@ -419,7 +286,6 @@ class ScreenCaptureService : Service() {
             ssList.add(bitmap)
             Toast.makeText(this, "Captured", Toast.LENGTH_SHORT).show()
         }
-        //mImageReader!!.setOnImageAvailableListener(ImageAvailableListener(), mHandler)
     }
 
     private fun createNotificationChannel() {
@@ -437,26 +303,18 @@ class ScreenCaptureService : Service() {
 
     companion object {
         const val CHANNEL_ID = "ForegroundServiceChannel"
-        private const val TAG = "ScreenCaptureService"
         private const val RESULT_CODE = "RESULT_CODE"
         private const val DATA = "DATA"
         private const val ACTION = "ACTION"
         private const val START = "START"
         private const val STOP = "STOP"
-        private const val SCREENCAP_NAME = "screencap"
-        private var IMAGES_PRODUCED = 0
+        private const val SCREEN_CAP_NAME = "ScreenCapture"
 
         fun getStartIntent(context: Context?, resultCode: Int, data: ParcelableIntent): Intent {
             val intent = Intent(context, ScreenCaptureService::class.java)
             intent.putExtra(ACTION, START)
             intent.putExtra(RESULT_CODE, resultCode)
             intent.putExtra(DATA, data)
-            return intent
-        }
-
-        fun getStopIntent(context: Context?): Intent {
-            val intent = Intent(context, ScreenCaptureService::class.java)
-            intent.putExtra(ACTION, STOP)
             return intent
         }
 

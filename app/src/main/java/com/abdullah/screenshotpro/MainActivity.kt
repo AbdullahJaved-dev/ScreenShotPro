@@ -1,6 +1,5 @@
 package com.abdullah.screenshotpro
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -17,6 +16,7 @@ import android.provider.Settings
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.abdullah.screenshotpro.data.ParcelableIntent
@@ -43,6 +43,38 @@ class MainActivity : AppCompatActivity() {
                 }
             } else {
                 checkStoragePermission()
+            }
+        }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    private val requestOverlayPermission =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (it.resultCode == RESULT_OK) {
+                captureScreenshot(this)
+            } else {
+                if (!Settings.canDrawOverlays(this)) {
+                    captureScreenshot(this)
+                } else {
+                    Toast.makeText(this, "Overlay Permission is required", Toast.LENGTH_SHORT)
+                        .show()
+                }
+            }
+        }
+
+    private val startMediaProjectionManager =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (it.resultCode == RESULT_OK) {
+                ContextCompat.startForegroundService(
+                    this,
+                    ScreenCaptureService.getStartIntent(
+                        this,
+                        it.resultCode,
+                        ParcelableIntent(it.data!!)
+                    )
+                )
+                this.finishAffinity()
+            } else {
+                Toast.makeText(this, "Media Projection Canceled", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -157,7 +189,7 @@ class MainActivity : AppCompatActivity() {
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:$packageName")
                 )
-                startActivityForResult(intent, 100)
+                requestOverlayPermission.launch(intent)
             } else {
                 captureScreenshot(this)
             }
@@ -170,10 +202,10 @@ class MainActivity : AppCompatActivity() {
     private fun captureScreenshot(activity: Activity) {
         mediaProjectionManager =
             activity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), 777)
+        startMediaProjectionManager.launch(mediaProjectionManager.createScreenCaptureIntent())
     }
 
-    @SuppressLint("WrongConstant")
+    /*@SuppressLint("WrongConstant")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
@@ -183,17 +215,13 @@ class MainActivity : AppCompatActivity() {
             } else {
                 "Canceled"
             }
-            /*val serviceIntent = Intent(this, FloatingWidgetService::class.java)
+            *//*val serviceIntent = Intent(this, FloatingWidgetService::class.java)
             serviceIntent.putExtra("videoURI", videoURI)
-            startService()*/
+            startService()*//*
 
         } else if (requestCode == 777) {
             if (resultCode == RESULT_OK) {
-                ContextCompat.startForegroundService(
-                    this,
-                    ScreenCaptureService.getStartIntent(this, resultCode, ParcelableIntent(data!!))
-                )
-                this.finishAffinity()
+
             } else {
                 "Canceled"
             }
@@ -201,11 +229,11 @@ class MainActivity : AppCompatActivity() {
             "OK"
         }
 
-        /*ContextCompat.startForegroundService(
+        *//*ContextCompat.startForegroundService(
             this, Intent(this, ScreenCaptureService::class.java)
-        )*/
+        )*//*
 
-        /*val projection = mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, data!!)
+        *//*val projection = mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, data!!)
 
         if (projection == null) {
             Log.d("TAG", "captureScreenshot: ")
@@ -254,8 +282,8 @@ class MainActivity : AppCompatActivity() {
             projection.stop()
             ssList.add(bitmap)
             Toast.makeText(this, "Captured", Toast.LENGTH_SHORT).show()
-        }*/
+        }*//*
         // Process the image here
-    }
+    }*/
 
 }

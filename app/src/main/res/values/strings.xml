@@ -2,4 +2,7 @@
     <string name="app_name">ScreenShot Pro</string>
     <string name="take_screenshot">Take Screenshot</string>
     <string name="save">Save</string>
+    <string name="capture">Capture</string>
+    <string name="stop">Stop</string>
+    <string name="ss_image">SS_IMAGE</string>
 </resources>
